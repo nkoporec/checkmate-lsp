@@ -1,5 +1,5 @@
 [package]
-name = "checkmate_lsp"
+name = "checkmate-lsp"
 version = "0.1.0"
 edition = "2021"
 authors = ["nkoporec <hey@nkoporec.com>"]
