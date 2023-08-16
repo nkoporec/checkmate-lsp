@@ -13,7 +13,7 @@ Currently we support:
 
 More plugins will be added over time, contributions are welcomed.
 
-## Motivating
+## Motivation
 
 Running linters should be a straightforward task, however, the current landscape presents numerous options for executing specific linters within your preferred code editor. This often entails installing distinct extensions or plugins within your editor. When dealing with multiple programming languages, this approach necessitates the installation of a separate linter for each language, which is suboptimal. The Language Server Protocol (LSP) emerges as a powerful solution, making it a prime candidate for this task.
 
