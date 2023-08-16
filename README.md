@@ -1,4 +1,4 @@
-## Checkmate
+## Checkmate-LSP
 
 A LSP framework to inject a LSP diagnostics. The most common use case is to run linters (ESLint, Stylelint ...) and inject the errors/warnings into your editor.
 
@@ -23,7 +23,7 @@ Checkmate draws significant inspiration from [null-ls](https://github.com/jose-e
 
 Using cargo
 
- `cargo install checkmate_lsp`
+ `cargo install checkmate-lsp`
 
 
 ## Enabling plugins
@@ -82,7 +82,7 @@ local lspconfig = require 'lspconfig'
 if not configs.checkmate then
  configs.checkmate = {
    default_config = {
-     cmd = {'checkmate'},
+     cmd = {'checkmate-lsp'},
      root_dir = function(pattern)
       local cwd = vim.loop.cwd()
       local root = lspconfig.util.root_pattern('.git')(pattern)
