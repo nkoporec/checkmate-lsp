@@ -15,7 +15,7 @@ pub type StylelintReport = Vec<FileReport>;
 
 #[derive(Default, Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct FileReport {
+pub struct FileReport {
     pub source: String,
     pub deprecations: Vec<Value>,
     pub invalid_option_warnings: Vec<Value>,
@@ -26,7 +26,7 @@ struct FileReport {
 
 #[derive(Default, Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct FileMessage {
+pub struct FileMessage {
     pub line: i64,
     pub column: i64,
     pub end_line: i64,

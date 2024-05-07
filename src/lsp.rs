@@ -36,11 +36,10 @@ impl ClientSettings {
 pub struct ServerSettings {
     pub available_plugins: HashMap<String, Box<dyn Plugin + Send + Sync>>,
     pub installed_plugins: DashMap<String, PluginSetting>,
-    pub debug: bool,
 }
 
 impl ServerSettings {
-    pub fn new(debug: bool) -> Self {
+    pub fn new() -> Self {
         let mut available_plugins: HashMap<String, Box<dyn Plugin + Send + Sync>> = HashMap::new();
 
         // All supported plugins.
@@ -52,7 +51,6 @@ impl ServerSettings {
         ServerSettings {
             available_plugins,
             installed_plugins: DashMap::new(),
-            debug,
         }
     }
 }
@@ -116,21 +114,15 @@ impl LanguageServer for Lsp {
             if let Some(default_plugin_setting) =
                 plugin.is_installed(self.client_settings.settings.clone())
             {
-                if self.server_settings.debug {
-                    self.client
-                        .log_message(
-                            MessageType::ERROR,
-                            format!(
-                                "Plugin {} is installed, executable path is {}",
-                                plugin_id, default_plugin_setting.cmd
-                            ),
-                        )
-                        .await;
-                    info!(
-                        "Plugin {} is installed, executable path is {}",
-                        plugin_id, default_plugin_setting.cmd
-                    );
-                }
+                self.client
+                    .log_message(
+                        MessageType::LOG,
+                        format!(
+                            "Plugin {} is installed, executable path is {}",
+                            plugin_id, default_plugin_setting.cmd
+                        ),
+                    )
+                    .await;
 
                 let mut plugin_settings = PluginSetting::default();
 
@@ -156,7 +148,9 @@ impl LanguageServer for Lsp {
                     }
                     plugin_settings.filetypes = plugin_filetypes;
                 } else {
-                    plugin_settings.filetypes.clone_from(&default_plugin_setting.filetypes);
+                    plugin_settings
+                        .filetypes
+                        .clone_from(&default_plugin_setting.filetypes);
                 }
 
                 self.server_settings
@@ -165,21 +159,15 @@ impl LanguageServer for Lsp {
                 continue;
             }
 
-            if self.server_settings.debug {
-                self.client
-                    .log_message(
-                        MessageType::ERROR,
-                        format!(
-                            "{} plugin is not installed or can't be executed.",
-                            plugin_id
-                        ),
-                    )
-                    .await;
-                info!(
-                    "{} plugin is not installed or can't be executed.",
-                    plugin_id
-                );
-            }
+            self.client
+                .log_message(
+                    MessageType::ERROR,
+                    format!(
+                        "{} plugin is not installed or can't be executed.",
+                        plugin_id
+                    ),
+                )
+                .await;
         }
 
         self.client
@@ -206,40 +194,24 @@ impl LanguageServer for Lsp {
         Ok(())
     }
 
-    async fn did_change(&self, _params: DidChangeTextDocumentParams) {
-        self.client
-            .log_message(MessageType::LOG, "checkmate did_change")
-            .await;
-    }
+    async fn did_change(&self, _params: DidChangeTextDocumentParams) {}
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let file_uri = params.text_document.uri.clone();
 
         self.client
-            .log_message(MessageType::LOG, "checkmate did_save")
+            .log_message(MessageType::INFO, "Text saved, running linters...")
             .await;
-
-        if self.server_settings.debug {
-            info!("Text saved, running linters...");
-
-            self.client
-                .log_message(MessageType::INFO, "Text saved, running linters...")
-                .await;
-        }
 
         for (id, settings) in self.server_settings.installed_plugins.clone() {
             let plugin = self.server_settings.available_plugins.get(&id).unwrap();
 
-            if self.server_settings.debug {
-                info!("Running plugin: {}", plugin.get_plugin_id());
-
-                self.client
-                    .log_message(
-                        MessageType::INFO,
-                        format!("Running plugin: {}", plugin.get_plugin_id()),
-                    )
-                    .await;
-            }
+            self.client
+                .log_message(
+                    MessageType::LOG,
+                    format!("Running plugin: {}", plugin.get_plugin_id()),
+                )
+                .await;
 
             // Validate filetypes.
             if !settings.filetypes.contains(
@@ -252,22 +224,15 @@ impl LanguageServer for Lsp {
                     .unwrap()
                     .to_string(),
             ) {
-                if self.server_settings.debug {
-                    info!(
-                        "Invalid filetype, allowed filetypes for this plugin {} are: {:?}",
-                        id, settings.filetypes
-                    );
-
-                    self.client
-                        .log_message(
-                            MessageType::INFO,
-                            format!(
-                                "Invalid filetype, allowed filetypes for this plugin {} are: {:?}",
-                                id, settings.filetypes
-                            ),
-                        )
-                        .await;
-                }
+                self.client
+                    .log_message(
+                        MessageType::ERROR,
+                        format!(
+                            "Invalid filetype, allowed filetypes for this plugin {} are: {:?}",
+                            id, settings.filetypes
+                        ),
+                    )
+                    .await;
 
                 continue;
             }

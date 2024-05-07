@@ -15,7 +15,7 @@ pub type EslintReport = Vec<FileReport>;
 
 #[derive(Default, Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct FileReport {
+pub(crate) struct FileReport {
     pub file_path: String,
     pub messages: Vec<FileMessage>,
     pub suppressed_messages: Vec<Value>,
@@ -30,7 +30,7 @@ struct FileReport {
 
 #[derive(Default, Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct FileMessage {
+pub(crate) struct FileMessage {
     pub rule_id: Value,
     pub fatal: bool,
     pub severity: i64,

@@ -5,7 +5,7 @@ use dashmap::DashMap;
 use log::{error, info};
 use tower_lsp::lsp_types::{Diagnostic, Position, Range};
 use tower_lsp::lsp_types::{DiagnosticSeverity, MessageType, Url};
-use tower_lsp::{Client};
+use tower_lsp::Client;
 
 use crate::plugins::{Plugin, PluginOutput, PluginSetting};
 use serde_derive::Deserialize;
