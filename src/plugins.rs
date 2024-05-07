@@ -1,5 +1,7 @@
+use async_trait::async_trait;
 use dashmap::DashMap;
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
+use tower_lsp::Client;
 
 pub mod eslint;
 pub mod phpcs;
@@ -43,6 +45,7 @@ pub struct Position {
     pub column_end: u32,
 }
 
+#[async_trait]
 pub trait Plugin {
     // Get plugin id.
     fn get_plugin_id(&self) -> &str;
@@ -52,5 +55,10 @@ pub trait Plugin {
     fn is_installed(&self, settings: DashMap<String, String>) -> Option<PluginSetting>;
 
     // Run plugin and return an output.
-    fn run(&self, plugin_settings: PluginSetting, uri: Url) -> Option<PluginOutput>;
+    async fn run(
+        &self,
+        plugin_settings: PluginSetting,
+        uri: Url,
+        client: Client,
+    ) -> Option<PluginOutput>;
 }

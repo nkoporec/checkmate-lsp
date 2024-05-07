@@ -1,11 +1,14 @@
 use std::{format, fs::metadata, process::Command, str, vec};
 
+use async_trait::async_trait;
 use dashmap::DashMap;
 use log::{error, info};
 use serde_json::Value;
-use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
+use tower_lsp::lsp_types::{Diagnostic, Position, Range};
+use tower_lsp::lsp_types::{DiagnosticSeverity, MessageType, Url};
+use tower_lsp::Client;
 
-use crate::plugins::{Plugin, PluginLineOutput, PluginOutput, PluginSetting, Position};
+use crate::plugins::{Plugin, PluginOutput, PluginSetting};
 use serde_derive::Deserialize;
 
 pub type StylelintReport = Vec<FileReport>;
@@ -36,6 +39,7 @@ struct FileMessage {
 #[derive(Default, Deserialize)]
 pub struct StylelintPlugin;
 
+#[async_trait]
 impl Plugin for StylelintPlugin {
     fn get_plugin_id(&self) -> &str {
         "stylelint"
@@ -65,13 +69,23 @@ impl Plugin for StylelintPlugin {
         None
     }
 
-    fn run(&self, plugin_settings: PluginSetting, uri: Url) -> Option<PluginOutput> {
-        info!("Running Stylelint");
-
+    async fn run(
+        &self,
+        plugin_settings: PluginSetting,
+        uri: Url,
+        client: Client,
+    ) -> Option<PluginOutput> {
         // Append file to args.
         let file = uri.to_string().replace("file://", "");
         let mut args = plugin_settings.args.clone();
         args.push(file);
+
+        client
+            .log_message(
+                MessageType::LOG,
+                format!("Running PHPCS with command {}", plugin_settings.cmd),
+            )
+            .await;
 
         let output = Command::new(plugin_settings.cmd)
             .args(args)
@@ -89,8 +103,8 @@ impl Plugin for StylelintPlugin {
 
         let report: StylelintReport = serde_json::from_slice(&output.stdout).unwrap_or_default();
 
-        let mut plugin_output = PluginOutput::default();
         for file_report in report {
+            let mut diagnostics = vec![];
             for message in &file_report.warnings {
                 let mut severity = DiagnosticSeverity::INFORMATION;
 
@@ -102,20 +116,37 @@ impl Plugin for StylelintPlugin {
 
                 let line_as_u32: u32 = message.line.try_into().unwrap();
                 let end_line_as_u32: u32 = message.end_line.try_into().unwrap();
-                plugin_output.messages.push(PluginLineOutput {
-                    position: Position {
-                        line: line_as_u32 - 1,
-                        column: message.column.try_into().unwrap(),
-                        line_end: end_line_as_u32 - 1,
-                        column_end: message.end_column.try_into().unwrap(),
-                    },
-                    text: message.text.clone(),
-                    severity,
-                });
+
+                let item = Diagnostic::new(
+                    Range::new(
+                        Position {
+                            line: line_as_u32 - 1,
+                            character: message.column.try_into().unwrap(),
+                        },
+                        Position {
+                            line: end_line_as_u32 - 1,
+                            character: message.column.try_into().unwrap(),
+                        },
+                    ),
+                    Some(severity),
+                    None,
+                    None,
+                    message.text.clone(),
+                    None,
+                    None,
+                );
+
+                diagnostics.push(item);
             }
+
+            client
+                .publish_diagnostics(uri.clone(), diagnostics, Some(1))
+                .await;
         }
 
-        info!("Stylelint ended.");
-        Some(plugin_output)
+        client
+            .log_message(MessageType::LOG, "Stylelint ended".to_string())
+            .await;
+        None
     }
 }

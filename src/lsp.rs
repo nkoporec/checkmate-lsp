@@ -7,7 +7,10 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use crate::plugins::{Plugin, phpcs::PhpcsPlugin, PluginSetting, phpstan::PhpstanPlugin, eslint::EslintPlugin, stylelint::StylelintPlugin};
+use crate::plugins::{
+    eslint::EslintPlugin, phpcs::PhpcsPlugin, phpstan::PhpstanPlugin, stylelint::StylelintPlugin,
+    Plugin, PluginSetting,
+};
 
 pub struct Lsp {
     pub client: Client,
@@ -49,7 +52,7 @@ impl ServerSettings {
         ServerSettings {
             available_plugins,
             installed_plugins: DashMap::new(),
-            debug
+            debug,
         }
     }
 }
@@ -57,7 +60,9 @@ impl ServerSettings {
 #[tower_lsp::async_trait]
 impl LanguageServer for Lsp {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        self.client_settings.settings.insert("root_uri".to_string(), params.root_uri.unwrap().to_string());
+        self.client_settings
+            .settings
+            .insert("root_uri".to_string(), params.root_uri.unwrap().to_string());
         Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
@@ -78,12 +83,14 @@ impl LanguageServer for Lsp {
 
     async fn initialized(&self, _params: InitializedParams) {
         // parse editor settings.
-        let editor_settings_items = ConfigurationItem{
+        let editor_settings_items = ConfigurationItem {
             scope_uri: None,
             section: Some("checkmate.plugins".to_string()),
         };
 
-        let editor_settings = self.client.configuration(vec![editor_settings_items])
+        let editor_settings = self
+            .client
+            .configuration(vec![editor_settings_items])
             .await
             .expect("Cant fetch code editor config.");
 
@@ -94,7 +101,10 @@ impl LanguageServer for Lsp {
 
             if plugin_discovered.is_none() {
                 self.client
-                    .log_message(MessageType::ERROR, format!("{} plugin does not exist.", plugin_id))
+                    .log_message(
+                        MessageType::ERROR,
+                        format!("{} plugin does not exist.", plugin_id),
+                    )
                     .await;
                 info!("{} plugin does not exist.", plugin_id);
 
@@ -103,25 +113,34 @@ impl LanguageServer for Lsp {
 
             let plugin = plugin_discovered.unwrap();
 
-            if let Some(default_plugin_setting) = plugin.is_installed(self.client_settings.settings.clone()) {
-
+            if let Some(default_plugin_setting) =
+                plugin.is_installed(self.client_settings.settings.clone())
+            {
                 if self.server_settings.debug {
                     self.client
-                        .log_message(MessageType::ERROR, format!("Plugin {} is installed, executable path is {}", plugin_id, default_plugin_setting.cmd))
+                        .log_message(
+                            MessageType::ERROR,
+                            format!(
+                                "Plugin {} is installed, executable path is {}",
+                                plugin_id, default_plugin_setting.cmd
+                            ),
+                        )
                         .await;
-                    info!("Plugin {} is installed, executable path is {}", plugin_id, default_plugin_setting.cmd);
+                    info!(
+                        "Plugin {} is installed, executable path is {}",
+                        plugin_id, default_plugin_setting.cmd
+                    );
                 }
 
                 let mut plugin_settings = PluginSetting::default();
 
                 // CMD
                 if !settings.cmd.is_empty() {
-                    plugin_settings.cmd = settings.cmd.clone();
+                    plugin_settings.cmd.clone_from(&settings.cmd);
+                } else {
+                    plugin_settings.cmd.clone_from(&default_plugin_setting.cmd);
                 }
-                else {
-                    plugin_settings.cmd = default_plugin_setting.cmd.clone();
-                }
-    
+
                 // ARGS.
                 let mut plugin_args = default_plugin_setting.args.clone();
                 for arg in settings.args {
@@ -136,21 +155,30 @@ impl LanguageServer for Lsp {
                         plugin_filetypes.push(i);
                     }
                     plugin_settings.filetypes = plugin_filetypes;
-                }
-                else {
-                    plugin_settings.filetypes = default_plugin_setting.filetypes.clone();
+                } else {
+                    plugin_settings.filetypes.clone_from(&default_plugin_setting.filetypes);
                 }
 
-                self.server_settings.installed_plugins.insert(plugin_id, plugin_settings);
+                self.server_settings
+                    .installed_plugins
+                    .insert(plugin_id, plugin_settings);
                 continue;
             }
 
-
             if self.server_settings.debug {
                 self.client
-                    .log_message(MessageType::ERROR, format!("{} plugin is not installed or can't be executed.", plugin_id))
+                    .log_message(
+                        MessageType::ERROR,
+                        format!(
+                            "{} plugin is not installed or can't be executed.",
+                            plugin_id
+                        ),
+                    )
                     .await;
-                info!("{} plugin is not installed or can't be executed.", plugin_id);
+                info!(
+                    "{} plugin is not installed or can't be executed.",
+                    plugin_id
+                );
             }
         }
 
@@ -179,10 +207,17 @@ impl LanguageServer for Lsp {
     }
 
     async fn did_change(&self, _params: DidChangeTextDocumentParams) {
+        self.client
+            .log_message(MessageType::LOG, "checkmate did_change")
+            .await;
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let file_uri = params.text_document.uri.clone();
+
+        self.client
+            .log_message(MessageType::LOG, "checkmate did_save")
+            .await;
 
         if self.server_settings.debug {
             info!("Text saved, running linters...");
@@ -192,7 +227,6 @@ impl LanguageServer for Lsp {
                 .await;
         }
 
-        let mut diagnostics: Vec<Diagnostic> = vec![];
         for (id, settings) in self.server_settings.installed_plugins.clone() {
             let plugin = self.server_settings.available_plugins.get(&id).unwrap();
 
@@ -200,57 +234,52 @@ impl LanguageServer for Lsp {
                 info!("Running plugin: {}", plugin.get_plugin_id());
 
                 self.client
-                    .log_message(MessageType::INFO, format!("Running plugin: {}", plugin.get_plugin_id()))
+                    .log_message(
+                        MessageType::INFO,
+                        format!("Running plugin: {}", plugin.get_plugin_id()),
+                    )
                     .await;
             }
 
             // Validate filetypes.
-            if !settings.filetypes.contains(&file_uri.to_file_path().unwrap().extension().unwrap().to_str().unwrap().to_string()) {
+            if !settings.filetypes.contains(
+                &file_uri
+                    .to_file_path()
+                    .unwrap()
+                    .extension()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string(),
+            ) {
                 if self.server_settings.debug {
-                    info!("Invalid filetype, allowed filetypes for this plugin {} are: {:?}", id, settings.filetypes);
+                    info!(
+                        "Invalid filetype, allowed filetypes for this plugin {} are: {:?}",
+                        id, settings.filetypes
+                    );
 
                     self.client
-                        .log_message(MessageType::INFO, format!("Invalid filetype, allowed filetypes for this plugin {} are: {:?}", id, settings.filetypes))
+                        .log_message(
+                            MessageType::INFO,
+                            format!(
+                                "Invalid filetype, allowed filetypes for this plugin {} are: {:?}",
+                                id, settings.filetypes
+                            ),
+                        )
                         .await;
                 }
 
                 continue;
             }
-            
-            let output = plugin.run(settings, params.text_document.uri.clone());
-            
-            if output.is_none() {
-                continue;
-            }
 
-            let messages = output.clone().unwrap().messages;
-
-            for message in messages {
-                let item = Diagnostic::new(
-                    Range::new(
-                        Position {
-                            line: message.position.line,
-                            character: message.position.column,
-                        },
-                        Position {
-                            line: message.position.line_end,
-                            character: message.position.column_end,
-                        },
-                    ),
-                    Some(message.severity),
-                    None,
-                    None,
-                    message.text,
-                    None,
-                    None
-                );
-
-                diagnostics.push(item);
-            }
+            plugin
+                .run(
+                    settings,
+                    params.text_document.uri.clone(),
+                    self.client.clone(),
+                )
+                .await;
         }
-
-        self.client.publish_diagnostics(params.text_document.uri.clone(), diagnostics, Some(1))
-        .await;
     }
 }
 
@@ -267,39 +296,47 @@ fn parse_client_editor_settings(config: Vec<Value>) -> HashMap<String, PluginSet
             let user_defined_settings_object = settings_object.get(id).unwrap().as_object();
 
             if user_defined_settings_object.is_none() {
-                editor_plugins.insert(
-                    id.to_owned(),
-                    PluginSetting::default(),
-                );
+                editor_plugins.insert(id.to_owned(), PluginSetting::default());
                 continue;
             }
 
             let user_defined_settings = user_defined_settings_object.unwrap();
-            let cmd = user_defined_settings.get("cmd").unwrap_or(&Value::String("".to_string())).as_str().unwrap_or("").to_string();
-            let args = user_defined_settings.get("args").unwrap_or(&Value::String("".to_string())).as_str().unwrap_or("").to_string();
-            let filetypes = user_defined_settings.get("filetypes").unwrap_or(&Value::String("".to_string())).as_str().unwrap_or("").to_string();
+            let cmd = user_defined_settings
+                .get("cmd")
+                .unwrap_or(&Value::String("".to_string()))
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            let args = user_defined_settings
+                .get("args")
+                .unwrap_or(&Value::String("".to_string()))
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            let filetypes = user_defined_settings
+                .get("filetypes")
+                .unwrap_or(&Value::String("".to_string()))
+                .as_str()
+                .unwrap_or("")
+                .to_string();
 
             let mut args_vec = vec![];
-            args
-                .split(' ')
-                .for_each(|i| {
-                    args_vec.push(i.to_string());
-                });
+            args.split(' ').for_each(|i| {
+                args_vec.push(i.to_string());
+            });
 
             let mut filetypes_vec = vec![];
-            filetypes
-                .split(',')
-                .for_each(|i| {
-                    filetypes_vec.push(i.to_string());
-                });
+            filetypes.split(',').for_each(|i| {
+                filetypes_vec.push(i.to_string());
+            });
 
             editor_plugins.insert(
                 id.to_owned(),
-                PluginSetting { 
+                PluginSetting {
                     cmd,
                     args: args_vec,
                     filetypes: filetypes_vec,
-                }
+                },
             );
         }
     }

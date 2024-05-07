@@ -22,4 +22,5 @@ serde_derive = "1.0.180"
 serde = "1.0.180"
 clap = {version="4.3.19", features = ["derive"]}
 simple-home-dir = "0.1.4"
+async-trait = "0.1.80"
 

@@ -1,10 +1,13 @@
 use std::{collections::HashMap, format, fs::metadata, process::Command, str, vec};
 
+use async_trait::async_trait;
 use dashmap::DashMap;
 use log::{error, info};
-use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
+use tower_lsp::lsp_types::{Diagnostic, Position, Range};
+use tower_lsp::lsp_types::{DiagnosticSeverity, MessageType, Url};
+use tower_lsp::{Client};
 
-use crate::plugins::{Plugin, PluginLineOutput, PluginOutput, PluginSetting, Position};
+use crate::plugins::{Plugin, PluginOutput, PluginSetting};
 use serde_derive::Deserialize;
 
 #[derive(Default, Debug, Clone, PartialEq, Deserialize)]
@@ -37,6 +40,7 @@ struct FileMessage {
 #[derive(Default)]
 pub struct PhpcsPlugin;
 
+#[async_trait]
 impl Plugin for PhpcsPlugin {
     fn get_plugin_id(&self) -> &str {
         "phpcs"
@@ -82,13 +86,23 @@ impl Plugin for PhpcsPlugin {
         }
     }
 
-    fn run(&self, plugin_settings: PluginSetting, uri: Url) -> Option<PluginOutput> {
-        info!("Running PHPCS");
-
+    async fn run(
+        &self,
+        plugin_settings: PluginSetting,
+        uri: Url,
+        client: Client,
+    ) -> Option<PluginOutput> {
         // Append file to args.
         let file = uri.to_string().replace("file://", "");
         let mut args = plugin_settings.args.clone();
         args.push(file);
+
+        client
+            .log_message(
+                MessageType::LOG,
+                format!("Running PHPCS with command {}", plugin_settings.cmd),
+            )
+            .await;
 
         let output = Command::new(plugin_settings.cmd)
             .args(args)
@@ -96,18 +110,22 @@ impl Plugin for PhpcsPlugin {
             .expect("failed to execute process");
 
         if !output.stderr.is_empty() {
-            error!(
-                "PHPCS returned error: {}",
-                str::from_utf8(&output.stderr).unwrap()
-            );
-
+            client
+                .log_message(
+                    MessageType::ERROR,
+                    format!(
+                        "PHPCS returned error: {}",
+                        str::from_utf8(&output.stderr).unwrap(),
+                    ),
+                )
+                .await;
             return None;
         }
 
         let report: PhpcsReport = serde_json::from_slice(&output.stdout).unwrap_or_default();
 
-        let mut plugin_output = PluginOutput::default();
         for file_report in report.files.values() {
+            let mut diagnostics = vec![];
             for message in &file_report.messages {
                 let mut severity = DiagnosticSeverity::INFORMATION;
 
@@ -117,20 +135,36 @@ impl Plugin for PhpcsPlugin {
                     _ => {}
                 }
 
-                plugin_output.messages.push(PluginLineOutput {
-                    position: Position {
-                        line: message.line - 1,
-                        column: message.column,
-                        line_end: message.line - 1,
-                        column_end: message.column,
-                    },
-                    text: message.message.clone(),
-                    severity,
-                });
+                let item = Diagnostic::new(
+                    Range::new(
+                        Position {
+                            line: message.line - 1,
+                            character: message.column,
+                        },
+                        Position {
+                            line: message.line - 1,
+                            character: message.column,
+                        },
+                    ),
+                    Some(severity),
+                    None,
+                    None,
+                    message.message.clone(),
+                    None,
+                    None,
+                );
+
+                diagnostics.push(item);
             }
+
+            client
+                .publish_diagnostics(uri.clone(), diagnostics, Some(1))
+                .await;
         }
 
-        info!("Phpcs ended.");
-        Some(plugin_output)
+        client
+            .log_message(MessageType::LOG, "PHPCS ended".to_string())
+            .await;
+        None
     }
 }

@@ -1,11 +1,14 @@
 use std::{collections::HashMap, fs::metadata, process::Command, str};
 
+use async_trait::async_trait;
 use dashmap::DashMap;
 use log::{error, info};
 use serde_derive::Deserialize;
+use tower_lsp::lsp_types::{Diagnostic, MessageType, Position, Range};
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
+use tower_lsp::Client;
 
-use crate::plugins::{Plugin, PluginLineOutput, PluginOutput, PluginSetting, Position};
+use crate::plugins::{Plugin, PluginOutput, PluginSetting};
 
 #[derive(Default)]
 pub struct PhpstanPlugin;
@@ -29,6 +32,7 @@ struct FileMessage {
     pub line: u32,
 }
 
+#[async_trait]
 impl Plugin for PhpstanPlugin {
     fn get_plugin_id(&self) -> &str {
         "phpstan"
@@ -74,13 +78,23 @@ impl Plugin for PhpstanPlugin {
         }
     }
 
-    fn run(&self, plugin_settings: PluginSetting, uri: Url) -> Option<PluginOutput> {
-        info!("Running Phpstan");
-
+    async fn run(
+        &self,
+        plugin_settings: PluginSetting,
+        uri: Url,
+        client: Client,
+    ) -> Option<PluginOutput> {
         // Append file to args.
         let file = uri.to_string().replace("file://", "");
         let mut args = plugin_settings.args.clone();
         args.push(file);
+
+        client
+            .log_message(
+                MessageType::LOG,
+                format!("Running PHPSTAN with command {}", plugin_settings.cmd),
+            )
+            .await;
 
         let output = Command::new(plugin_settings.cmd)
             .args(args)
@@ -89,23 +103,39 @@ impl Plugin for PhpstanPlugin {
 
         let report: PhpstanReport = serde_json::from_slice(&output.stdout).unwrap_or_default();
 
-        let mut plugin_output = PluginOutput::default();
         for file_report in report.files.values() {
+            let mut diagnostics = vec![];
             for message in &file_report.messages {
-                plugin_output.messages.push(PluginLineOutput {
-                    position: Position {
-                        line: message.line - 1,
-                        column: 1,
-                        line_end: message.line - 1,
-                        column_end: 1,
-                    },
-                    text: message.message.clone(),
-                    severity: DiagnosticSeverity::ERROR,
-                });
+                let item = Diagnostic::new(
+                    Range::new(
+                        Position {
+                            line: message.line - 1,
+                            character: 1,
+                        },
+                        Position {
+                            line: message.line - 1,
+                            character: 1,
+                        },
+                    ),
+                    Some(DiagnosticSeverity::ERROR),
+                    None,
+                    None,
+                    message.message.clone(),
+                    None,
+                    None,
+                );
+
+                diagnostics.push(item);
             }
+
+            client
+                .publish_diagnostics(uri.clone(), diagnostics, Some(1))
+                .await;
         }
 
-        info!("Phpstan ended.");
-        Some(plugin_output)
+        client
+            .log_message(MessageType::LOG, "PHPSTAN ended".to_string())
+            .await;
+        None
     }
 }
